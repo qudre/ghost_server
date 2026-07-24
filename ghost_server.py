@@ -473,8 +473,8 @@ def solve_gemini_rest(image, prompt, api_key, model_name):
     image.save(buf, format='JPEG', quality=70)
     img_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
     
-    # Убрали ?key= из URL
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+    # Возвращаем ключ в URL
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
     
     payload = {
         "contents": [
@@ -498,10 +498,9 @@ def solve_gemini_rest(image, prompt, api_key, model_name):
         ]
     }
     
-    # Передаём ключ в заголовке, как делает официальная библиотека
+    # Оставляем только Content-Type
     headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-key": api_key
+        "Content-Type": "application/json"
     }
     
     resp = requests.post(url, json=payload, headers=headers, timeout=60)
@@ -528,7 +527,7 @@ def solve_gemini_rest(image, prompt, api_key, model_name):
         raise Exception("Empty response")
         
     return text.strip()
-
+    
 def queue_worker():
     """Обработчик очереди. Берёт задачи по одной."""
     while True:
