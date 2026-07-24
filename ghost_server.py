@@ -14,7 +14,7 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
 
 # 3 API ключа прямо в коде
-RAW_KEYS = "AQ.Ab8RN6IxXBXv9WcKGa0dPFTR3uF9TG_NYTy_zVdWW3j7InWr-w,AQ.Ab8RN6L_lN6C0z0dsZUYzE0JW1xL-AEaDk9cchVct55C-M6RDA,AQ.Ab8RN6Jtj35AXGLnqnv5eJTrAxCl7emBP73HSVaHSK165LoUoQ"
+RAW_KEYS = "AQ.Ab8RN6LSBizBEqzXAR1AxZoCPTJTr4HeUdLTMehpYqSTuYlLoQ"
 API_KEYS = [k.strip() for k in RAW_KEYS.split(',') if k.strip()]
 
 KEY_STATUS = {}
