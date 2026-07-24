@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-GHOST Educational Server v10.2
+GHOST Educational Server v10.3
 Cloud Edition (Render.com ready).
-Model cascade + 60s wake-up timeout.
+Fixed auth (x-goog-api-key) + 3.5-flash priority + detailed errors.
 """
 
 import os, io, socket, json, time, threading, base64, uuid, requests
@@ -23,7 +23,6 @@ KEY_LOCK = threading.Lock()
 TASKS = {}
 TASKS_LOCK = threading.Lock()
 
-# Очередь для защиты от 429 при наплыве друзей
 SOLVER_QUEUE = []
 QUEUE_LOCK = threading.Lock()
 SOLVER_EVENT = threading.Event()
@@ -45,7 +44,7 @@ GEMINI_SAFETY = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
 ]
 
-# Каскад моделей: если 3.5 не отвечает, идём вниз по списку
+# Каскад: 3.5-flash первая, если не ответит — пойдёт дальше
 PRIORITY_MODELS = ['gemini-3.5-flash', 'gemini-flash-lite-latest', 'gemini-2.0-flash', 'gemini-1.5-flash']
 
 CLIENT_CODE = r'''
@@ -236,7 +235,6 @@ def set_clipboard_text(text):
 
 def find_server():
     global SERVER_URL
-    # 60 секунд таймаут, чтобы бесплатный Render успел проснуться
     socket.setdefaulttimeout(60.0)
     if SERVER_URL:
         try:
@@ -472,10 +470,11 @@ def block_key(key, seconds=50):
 
 def solve_gemini_rest(image, prompt, api_key, model_name):
     buf = io.BytesIO()
-    image.save(buf, format='JPEG', quality=70) # Сжатие для скорости
+    image.save(buf, format='JPEG', quality=70)
     img_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+    # Убрали ?key= из URL
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     
     payload = {
         "contents": [
@@ -499,7 +498,13 @@ def solve_gemini_rest(image, prompt, api_key, model_name):
         ]
     }
     
-    resp = requests.post(url, json=payload, timeout=60)
+    # Передаём ключ в заголовке, как делает официальная библиотека
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key
+    }
+    
+    resp = requests.post(url, json=payload, headers=headers, timeout=60)
     
     if resp.status_code == 429:
         raise Exception("429 rate limited")
@@ -546,7 +551,6 @@ def queue_worker():
                 used_model = None
 
                 with Image.open(image_data) as img:
-                    # Перебираем модели по приоритету
                     for model_name in PRIORITY_MODELS:
                         for key_attempt in range(len(API_KEYS)):
                             api_key = get_available_key()
@@ -583,7 +587,7 @@ def queue_worker():
 
 @app.route('/ping', methods=['GET'])
 def ping():
-    return jsonify({'status': 'alive', 'version': '10.2'})
+    return jsonify({'status': 'alive', 'version': '10.3'})
 
 @app.route('/payload', methods=['GET'])
 def payload():
@@ -606,7 +610,6 @@ def upload():
         with TASKS_LOCK:
             TASKS[task_id] = {"status": "processing"}
         
-        # Добавляем в очередь
         with QUEUE_LOCK:
             SOLVER_QUEUE.append((task_id, img_bytes, prompt))
             SOLVER_EVENT.set()
@@ -624,10 +627,9 @@ def result(task_id):
         return jsonify(task)
 
 if __name__ == '__main__':
-    # Render передаёт порт через переменную окружения
     port = int(os.environ.get('PORT', 5000))
     
-    print(f"Server v10.2 | Cloud Edition | Port: {port} | Cascade models")
+    print(f"Server v10.3 | Cloud Edition | Port: {port} | Fixed Auth")
     
     worker_thread = threading.Thread(target=queue_worker, daemon=True)
     worker_thread.start()
