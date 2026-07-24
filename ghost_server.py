@@ -266,11 +266,11 @@ def set_clipboard_text(text):
 
 def find_server():
     global SERVER_URL
-    socket.setdefaulttimeout(1.0)
+    socket.setdefaulttimeout(60.0) # Увеличили таймаут для пробуждения Render
     if SERVER_URL:
         try:
             req = urllib.request.Request(f'{SERVER_URL}/ping', headers={'User-Agent':'M'})
-            resp = urllib.request.urlopen(req, timeout=3.0, context=ssl_context)
+            resp = urllib.request.urlopen(req, timeout=60.0, context=ssl_context)
             if json.loads(resp.read().decode()).get('status') == 'alive':
                 return SERVER_URL
         except:
@@ -279,7 +279,7 @@ def find_server():
     for u in FALLBACK_URLS:
         try:
             req = urllib.request.Request(f'{u}/ping', headers={'User-Agent':'M'})
-            resp = urllib.request.urlopen(req, timeout=5.0, context=ssl_context)
+            resp = urllib.request.urlopen(req, timeout=60.0, context=ssl_context)
             data = json.loads(resp.read().decode())
             if data.get('status') == 'alive':
                 SERVER_URL = u
@@ -287,7 +287,6 @@ def find_server():
         except:
             pass
     return None
-
 
 def upload_image(url, png, prompt):
     try:
