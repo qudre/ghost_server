@@ -280,7 +280,7 @@ def upload_image(url, png, prompt):
 
 def poll_result(url, task_id):
     start_time = time.time()
-    timeout = 180 # Увеличили до 3 минут на случай очереди
+    timeout = 180
     while time.time() - start_time < timeout:
         try:
             req = urllib.request.Request(f'{url}/result/{task_id}', headers={'User-Agent':'M'})
@@ -290,6 +290,8 @@ def poll_result(url, task_id):
             if status == 'done':
                 return data.get('answer', ''), data.get('method', 'unknown')
             elif status == 'error':
+                err = data.get('error', 'unknown error')
+                add_log(f"Ошибка сервера: {err}")
                 return None, None
         except:
             pass
