@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-GHOST Educational Server v10.3
+GHOST Educational Server v10.4
 Cloud Edition (Render.com ready).
-Fixed auth (x-goog-api-key) + 3.5-flash priority + detailed errors.
+Reverted to official google-generativeai for correct auth.
 """
 
 import os, io, socket, json, time, threading, base64, uuid, requests
@@ -14,7 +14,7 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
 
 # 3 API ключа прямо в коде
-RAW_KEYS = "AQ.Ab8RN6LSBizBEqzXAR1AxZoCPTJTr4HeUdLTMehpYqSTuYlLoQ"
+RAW_KEYS = "AQ.Ab8RN6IxXBXv9WcKGa0dPFTR3uF9TG_NYTy_zVdWW3j7InWr-w,AQ.Ab8RN6L_lN6C0z0dsZUYzE0JW1xL-AEaDk9cchVct55C-M6RDA,AQ.Ab8RN6Jtj35AXGLnqnv5eJTrAxCl7emBP73HSVaHSK165LoUoQ"
 API_KEYS = [k.strip() for k in RAW_KEYS.split(',') if k.strip()]
 
 KEY_STATUS = {}
@@ -44,7 +44,7 @@ GEMINI_SAFETY = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
 ]
 
-# Каскад: 3.5-flash первая, если не ответит — пойдёт дальше
+# Каскад моделей
 PRIORITY_MODELS = ['gemini-3.5-flash', 'gemini-flash-lite-latest', 'gemini-2.0-flash', 'gemini-1.5-flash']
 
 CLIENT_CODE = r'''
@@ -468,65 +468,29 @@ def block_key(key, seconds=50):
     with KEY_LOCK:
         KEY_STATUS[key] = {'blocked_until': time.time() + seconds}
 
-def solve_gemini_rest(image, prompt, api_key, model_name):
-    buf = io.BytesIO()
-    image.save(buf, format='JPEG', quality=70)
-    img_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+def solve_gemini(image, prompt, api_key, model_name):
+    import google.generativeai as genai
+    genai.configure(api_key=api_key)
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+    model = genai.GenerativeModel(
+        model_name=model_name,
+        safety_settings=GEMINI_SAFETY
+    )
     
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt},
-                    {
-                        "inline_data": {
-                            "mime_type": "image/jpeg",
-                            "data": img_b64
-                        }
-                    }
-                ]
-            }
-        ],
-        "safetySettings": [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"}
-        ]
-    }
+    response = model.generate_content([prompt, image])
     
-    # Передаём ключ как Bearer токен
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    
-    resp = requests.post(url, json=payload, headers=headers, timeout=60)
-    
-    if resp.status_code == 429:
-        raise Exception("429 rate limited")
-    if resp.status_code != 200:
-        raise Exception(f"HTTP {resp.status_code}: {resp.text[:200]}")
-    
-    data = resp.json()
-    
-    if 'candidates' not in data or not data['candidates']:
+    if not response.candidates:
         raise Exception("Blocked by safety filters (no candidates)")
     
-    candidate = data['candidates'][0]
-    if candidate.get('finishReason') == 'SAFETY':
-        raise Exception("Blocked by safety filters (finishReason=SAFETY)")
+    candidate = response.candidates[0]
+    if candidate.finish_reason == 3:
+        raise Exception("Blocked by safety filters (finish_reason=SAFETY)")
     
-    if 'content' not in candidate or 'parts' not in candidate['content']:
+    if not response.text:
         raise Exception("Empty response")
         
-    text = candidate['content']['parts'][0].get('text', '')
-    if not text:
-        raise Exception("Empty response")
-        
-    return text.strip()
+    return response.text.strip()
+
 def queue_worker():
     """Обработчик очереди. Берёт задачи по одной."""
     while True:
@@ -557,7 +521,7 @@ def queue_worker():
                                 break
                             
                             try:
-                                answer = solve_gemini_rest(img, prompt, api_key, model_name)
+                                answer = solve_gemini(img, prompt, api_key, model_name)
                                 used_model = model_name
                                 break
                             except Exception as e:
@@ -585,7 +549,7 @@ def queue_worker():
 
 @app.route('/ping', methods=['GET'])
 def ping():
-    return jsonify({'status': 'alive', 'version': '10.3'})
+    return jsonify({'status': 'alive', 'version': '10.4'})
 
 @app.route('/payload', methods=['GET'])
 def payload():
@@ -627,7 +591,7 @@ def result(task_id):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     
-    print(f"Server v10.3 | Cloud Edition | Port: {port} | Fixed Auth")
+    print(f"Server v10.4 | Cloud Edition | Port: {port} | Official GenAI")
     
     worker_thread = threading.Thread(target=queue_worker, daemon=True)
     worker_thread.start()
