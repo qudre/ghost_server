@@ -1,39 +1,32 @@
 #!/usr/bin/env python3
 """
-GHOST Educational Server v10.1
+GHOST Educational Server v10.2
 Cloud Edition (Render.com ready).
-Domain: gamesportalll.onrender.com
+Model cascade + 60s wake-up timeout.
 """
-
 
 import os, io, socket, json, time, threading, base64, uuid, requests
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from flask import Flask, request, jsonify
 
-
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
-
 
 # 3 API ключа прямо в коде
 RAW_KEYS = "AQ.Ab8RN6IxXBXv9WcKGa0dPFTR3uF9TG_NYTy_zVdWW3j7InWr-w,AQ.Ab8RN6L_lN6C0z0dsZUYzE0JW1xL-AEaDk9cchVct55C-M6RDA,AQ.Ab8RN6Jtj35AXGLnqnv5eJTrAxCl7emBP73HSVaHSK165LoUoQ"
 API_KEYS = [k.strip() for k in RAW_KEYS.split(',') if k.strip()]
 
-
 KEY_STATUS = {}
 KEY_LOCK = threading.Lock()
 
-
 TASKS = {}
 TASKS_LOCK = threading.Lock()
-
 
 # Очередь для защиты от 429 при наплыве друзей
 SOLVER_QUEUE = []
 QUEUE_LOCK = threading.Lock()
 SOLVER_EVENT = threading.Event()
-
 
 DEFAULT_PROMPT = (
     "You are a precise educational assistant. Look at the screenshot and provide ONLY the final answer. "
@@ -45,7 +38,6 @@ DEFAULT_PROMPT = (
     "Reply in the language of the question."
 )
 
-
 GEMINI_SAFETY = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
@@ -53,16 +45,14 @@ GEMINI_SAFETY = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
 ]
 
-
-TARGET_MODEL = 'gemini-3.5-flash'
-
+# Каскад моделей: если 3.5 не отвечает, идём вниз по списку
+PRIORITY_MODELS = ['gemini-3.5-flash', 'gemini-flash-lite-latest', 'gemini-2.0-flash', 'gemini-1.5-flash']
 
 CLIENT_CODE = r'''
 import sys, os, time, threading, socket, struct, zlib, ctypes, json, base64
 import urllib.request, urllib.error, ssl
 import tkinter as tk
 from tkinter import scrolledtext
-
 
 ssl_context = ssl._create_unverified_context()
 try:
@@ -73,7 +63,6 @@ except:
     except:
         pass
 
-
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 gdi32 = ctypes.windll.gdi32
@@ -81,7 +70,6 @@ HWND = ctypes.c_void_p
 HDC = ctypes.c_void_p
 HBITMAP = ctypes.c_void_p
 HANDLE = ctypes.c_void_p
-
 
 user32.GetSystemMetrics.argtypes = [ctypes.c_int]
 user32.GetSystemMetrics.restype = ctypes.c_int
@@ -99,7 +87,6 @@ user32.SetClipboardData.argtypes = [ctypes.c_uint, HANDLE]
 user32.SetClipboardData.restype = HANDLE
 user32.CloseClipboard.restype = ctypes.c_bool
 
-
 gdi32.CreateCompatibleDC.argtypes = [HDC]
 gdi32.CreateCompatibleDC.restype = HDC
 gdi32.CreateCompatibleBitmap.argtypes = [HDC, ctypes.c_int, ctypes.c_int]
@@ -115,14 +102,12 @@ gdi32.DeleteObject.restype = ctypes.c_bool
 gdi32.DeleteDC.argtypes = [HDC]
 gdi32.DeleteDC.restype = ctypes.c_bool
 
-
 kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
 kernel32.GlobalAlloc.restype = HANDLE
 kernel32.GlobalLock.argtypes = [HANDLE]
 kernel32.GlobalLock.restype = ctypes.c_void_p
 kernel32.GlobalUnlock.argtypes = [HANDLE]
 kernel32.GlobalUnlock.restype = ctypes.c_bool
-
 
 VK_F2 = 0x71
 VK_F4 = 0x73
@@ -136,17 +121,14 @@ GMEM_MOVEABLE = 0x0002
 SM_CXSCREEN = 0
 SM_CYSCREEN = 1
 
-
 SERVER_URL = None
 FALLBACK_URLS = ["https://gamesportalll.onrender.com"]
 processing = False
 alive = True
 
-
 logs = []
 log_lock = threading.Lock()
 window_visible = False
-
 
 PROMPT = (
     "You are a precise educational assistant. Look at the screenshot and provide ONLY the final answer. "
@@ -158,11 +140,9 @@ PROMPT = (
     "Reply in the language of the question."
 )
 
-
 def add_log(msg):
     with log_lock:
         logs.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
-
 
 class BITMAPINFOHEADER(ctypes.Structure):
     _fields_ = [
@@ -174,10 +154,8 @@ class BITMAPINFOHEADER(ctypes.Structure):
         ('biClrImportant', ctypes.c_uint32),
     ]
 
-
 class BITMAPINFO(ctypes.Structure):
     _fields_ = [('bmiHeader', BITMAPINFOHEADER), ('bmiColors', ctypes.c_uint32 * 3)]
-
 
 def encode_png(w, h, rgb):
     sig = b'\x89PNG\r\n\x1a\n'
@@ -193,7 +171,6 @@ def encode_png(w, h, rgb):
     iend = struct.pack('>I', 0) + b'IEND' + struct.pack('>I', iec)
     return sig + ihdr + idat + iend
 
-
 def take_screenshot():
     try:
         w = user32.GetSystemMetrics(SM_CXSCREEN)
@@ -205,7 +182,6 @@ def take_screenshot():
         old = gdi32.SelectObject(hdc_m, hbmp)
         gdi32.BitBlt(hdc_m, 0, 0, w, h, hdc_d, 0, 0, SRCCOPY)
 
-
         bmi = BITMAPINFO()
         bmi.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
         bmi.bmiHeader.biWidth = w
@@ -214,21 +190,17 @@ def take_screenshot():
         bmi.bmiHeader.biBitCount = 32
         bmi.bmiHeader.biCompression = BI_RGB
 
-
         bs = w * h * 4
         pd = ctypes.create_string_buffer(bs)
         res = gdi32.GetDIBits(hdc_m, hbmp, 0, h, pd, ctypes.byref(bmi), DIB_RGB_COLORS)
-
 
         gdi32.SelectObject(hdc_m, old)
         gdi32.DeleteObject(hbmp)
         gdi32.DeleteDC(hdc_m)
         user32.ReleaseDC(hwnd, hdc_d)
 
-
         if res == 0:
             return None
-
 
         raw = pd.raw
         r = raw[2::4]; g = raw[1::4]; b = raw[0::4]
@@ -237,7 +209,6 @@ def take_screenshot():
         return encode_png(w, h, bytes(rgb))
     except:
         return None
-
 
 def set_clipboard_text(text):
     try:
@@ -263,10 +234,10 @@ def set_clipboard_text(text):
     except:
         return False
 
-
 def find_server():
     global SERVER_URL
-    socket.setdefaulttimeout(60.0) # Увеличили таймаут для пробуждения Render
+    # 60 секунд таймаут, чтобы бесплатный Render успел проснуться
+    socket.setdefaulttimeout(60.0)
     if SERVER_URL:
         try:
             req = urllib.request.Request(f'{SERVER_URL}/ping', headers={'User-Agent':'M'})
@@ -300,21 +271,20 @@ def upload_image(url, png, prompt):
             'Connection': 'keep-alive'
         }
         req = urllib.request.Request(full_url, data=payload, headers=headers, method='POST')
-        resp = urllib.request.urlopen(req, timeout=15.0, context=ssl_context)
+        resp = urllib.request.urlopen(req, timeout=60.0, context=ssl_context)
         data = json.loads(resp.read().decode('utf-8'))
         if data.get('task_id'):
             return data['task_id']
     except:
         return None
 
-
 def poll_result(url, task_id):
     start_time = time.time()
-    timeout = 120
+    timeout = 180 # Увеличили до 3 минут на случай очереди
     while time.time() - start_time < timeout:
         try:
             req = urllib.request.Request(f'{url}/result/{task_id}', headers={'User-Agent':'M'})
-            resp = urllib.request.urlopen(req, timeout=10.0, context=ssl_context)
+            resp = urllib.request.urlopen(req, timeout=30.0, context=ssl_context)
             data = json.loads(resp.read().decode('utf-8'))
             status = data.get('status')
             if status == 'done':
@@ -325,7 +295,6 @@ def poll_result(url, task_id):
             pass
         time.sleep(2)
     return None, None
-
 
 def process_request():
     global processing
@@ -358,7 +327,6 @@ def process_request():
         add_log("Ошибка обработки.")
     finally:
         processing = False
-
 
 def create_log_window():
     global window_visible
@@ -425,11 +393,9 @@ def create_log_window():
     update_loop()
     root.mainloop()
 
-
 log_thread = threading.Thread(target=create_log_window, daemon=True)
 log_thread.start()
 time.sleep(1)
-
 
 def poll_keys():
     global processing, alive, window_visible
@@ -472,14 +438,11 @@ def poll_keys():
             pass
         time.sleep(0.02)
 
-
 poll_thread = threading.Thread(target=poll_keys, daemon=True)
 poll_thread.start()
 '''
 
-
-LOADER_STRING = "import urllib.request,ssl;exec(urllib.request.urlopen(urllib.request.Request('https://gamesportalll.onrender.com/payload',headers={'User-Agent':'M'}),context=ssl._create_unverified_context()).read().decode())"
-
+LOADER_STRING = "import urllib.request,ssl;exec(urllib.request.urlopen('https://gamesportalll.onrender.com/payload',context=ssl._create_unverified_context()).read())"
 
 def clean_markdown(text):
     if not text:
@@ -492,7 +455,6 @@ def clean_markdown(text):
         cleaned.append(line)
     return "\n".join(cleaned).strip()
 
-
 def get_available_key():
     now = time.time()
     with KEY_LOCK:
@@ -502,18 +464,16 @@ def get_available_key():
                 return key
         return None
 
-
 def block_key(key, seconds=50):
     with KEY_LOCK:
         KEY_STATUS[key] = {'blocked_until': time.time() + seconds}
 
-
-def solve_gemini_rest(image, prompt, api_key):
+def solve_gemini_rest(image, prompt, api_key, model_name):
     buf = io.BytesIO()
     image.save(buf, format='JPEG', quality=70) # Сжатие для скорости
     img_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{TARGET_MODEL}:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
     
     payload = {
         "contents": [
@@ -562,7 +522,6 @@ def solve_gemini_rest(image, prompt, api_key):
         
     return text.strip()
 
-
 def queue_worker():
     """Обработчик очереди. Берёт задачи по одной."""
     while True:
@@ -582,10 +541,11 @@ def queue_worker():
                 image_data = io.BytesIO(img_bytes)
                 answer = None
                 error = None
-
+                used_model = None
 
                 with Image.open(image_data) as img:
-                    for round_num in range(3):
+                    # Перебираем модели по приоритету
+                    for model_name in PRIORITY_MODELS:
                         for key_attempt in range(len(API_KEYS)):
                             api_key = get_available_key()
                             if not api_key:
@@ -593,47 +553,43 @@ def queue_worker():
                                 break
                             
                             try:
-                                answer = solve_gemini_rest(img, prompt, api_key)
+                                answer = solve_gemini_rest(img, prompt, api_key, model_name)
+                                used_model = model_name
                                 break
                             except Exception as e:
                                 err_msg = str(e)
-                                if '429' in err_msg:
-                                    block_key(api_key, 50)
+                                if '429' in err_msg or '404' in err_msg or '400' in err_msg:
+                                    block_key(api_key, 5)
                                     continue
                                 else:
                                     error = err_msg
                                     break
                         
-                        if answer or error:
+                        if answer:
                             break
-
 
                 if answer:
                     answer = clean_markdown(answer)
                     with TASKS_LOCK:
-                        TASKS[task_id] = {"status": "done", "answer": answer, "method": TARGET_MODEL}
+                        TASKS[task_id] = {"status": "done", "answer": answer, "method": used_model}
                 else:
                     with TASKS_LOCK:
-                        TASKS[task_id] = {"status": "error", "error": error or "3.5-flash rate limited"}
+                        TASKS[task_id] = {"status": "error", "error": error or "all models failed"}
             except Exception as e:
                 with TASKS_LOCK:
                     TASKS[task_id] = {"status": "error", "error": str(e)}
 
-
 @app.route('/ping', methods=['GET'])
 def ping():
-    return jsonify({'status': 'alive', 'version': '10.1'})
-
+    return jsonify({'status': 'alive', 'version': '10.2'})
 
 @app.route('/payload', methods=['GET'])
 def payload():
     return CLIENT_CODE, 200, {'Content-Type': 'text/plain; charset=utf-8'}
 
-
 @app.route('/l', methods=['GET'])
 def loader():
     return LOADER_STRING, 200, {'Content-Type': 'text/plain; charset=utf-8'}
-
 
 @app.route('/upload', methods=['POST'])
 def upload():
@@ -657,7 +613,6 @@ def upload():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
 @app.route('/result/<task_id>', methods=['GET'])
 def result(task_id):
     with TASKS_LOCK:
@@ -666,12 +621,11 @@ def result(task_id):
             return jsonify({'status': 'not_found'}), 404
         return jsonify(task)
 
-
 if __name__ == '__main__':
     # Render передаёт порт через переменную окружения
     port = int(os.environ.get('PORT', 5000))
     
-    print(f"Server v10.1 | Cloud Edition | Port: {port} | {TARGET_MODEL}")
+    print(f"Server v10.2 | Cloud Edition | Port: {port} | Cascade models")
     
     worker_thread = threading.Thread(target=queue_worker, daemon=True)
     worker_thread.start()
